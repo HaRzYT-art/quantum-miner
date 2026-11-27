@@ -1177,9 +1177,12 @@ addEventListener('keydown', e => {
   // One-shot actions must not repeat while a key is held down.
   if (e.repeat) return;
   if (e.code === 'KeyZ') {
-    cursorLockEnabled = !cursorLockEnabled;
-    if (cursorLockEnabled && walkMode && !marketMode) renderer.domElement.requestPointerLock?.();
-    else if (!cursorLockEnabled && document.pointerLockElement) document.exitPointerLock?.();
+    // В магазине курсор всегда свободен для перетаскивания товаров.
+    if (!marketMode) {
+      cursorLockEnabled = !cursorLockEnabled;
+      if (cursorLockEnabled && walkMode) renderer.domElement.requestPointerLock?.();
+      else if (document.pointerLockElement) document.exitPointerLock?.();
+    }
   }
   if (e.code === 'KeyE') toggleWalk();
   if (e.code === 'KeyF') tryBuy();
@@ -1221,12 +1224,12 @@ let marketMode=false, draggedProduct=null;
 const marketRaycaster=new THREE.Raycaster(), marketMouse=new THREE.Vector2(), marketDragPlane=new THREE.Plane(new THREE.Vector3(0,1,0),-1.35), marketHit=new THREE.Vector3();
 function stationLocal(gs, worldPos){const d=worldPos.clone().sub(gs.position);d.applyAxisAngle(new THREE.Vector3(0,1,0),-gs.rotation.y);return d;}
 function nearMarket(gs){const l=stationLocal(gs,walker.pos);return Math.abs(l.x)<10.5 && l.z<-16 && l.z>-29;}
-function setMarketMode(on){marketMode=on; if(on){if(document.pointerLockElement)document.exitPointerLock();promptEl.style.display='block';promptEl.textContent='ЛКМ — взять 3D-товар · перетащи к зелёной кассе · Esc — выйти';}else{draggedProduct=null; if(walkMode)renderer.domElement.requestPointerLock?.();promptEl.style.display='none';}}
+function setMarketMode(on){marketMode=on; if(on){if(document.pointerLockElement)document.exitPointerLock();promptEl.style.display='block';promptEl.textContent='ЛКМ — взять 3D-товар · перетащи к зелёной кассе · Esc — выйти';}else{draggedProduct=null; if(walkMode && cursorLockEnabled)renderer.domElement.requestPointerLock?.();promptEl.style.display='none';}}
 function marketProductAt(){marketRaycaster.setFromCamera(marketMouse,camera);const all=[];for(const gs of gasStations)for(const item of (gs.userData.marketItems||[]))all.push(...item.children);const hits=marketRaycaster.intersectObjects(all,true);return hits.length?hits[0].object:null;}
 function marketPickRoot(obj){while(obj && !obj.userData.marketProduct)obj=obj.parent;return obj;}
 function updateMarketPointer(e){marketMouse.x=e.clientX/innerWidth*2-1;marketMouse.y=-(e.clientY/innerHeight)*2+1;}
 addEventListener('pointermove',e=>{if(!marketMode)return;updateMarketPointer(e);if(draggedProduct){marketRaycaster.setFromCamera(marketMouse,camera);if(marketRaycaster.ray.intersectPlane(marketDragPlane,marketHit)){const localHit=draggedProduct.parent.worldToLocal(marketHit.clone());draggedProduct.position.x=localHit.x;draggedProduct.position.z=localHit.z;}}});
-addEventListener('pointerdown',e=>{if(!marketMode||e.button!==0)return;updateMarketPointer(e);const hit=marketProductAt();if(hit){draggedProduct=marketPickRoot(hit);e.preventDefault();}});
+addEventListener('pointerdown',e=>{if(!marketMode||e.button!==0)return;updateMarketPointer(e);const hit=marketProductAt();if(hit){draggedProduct=marketPickRoot(hit);e.preventDefault();try{e.target.setPointerCapture?.(e.pointerId);}catch(_){}}});
 addEventListener('pointerup',e=>{if(!marketMode||!draggedProduct)return;let sold=false;for(const gs of gasStations){const target=gs.userData.cashierLocal.clone().applyAxisAngle(new THREE.Vector3(0,1,0),gs.rotation.y).add(gs.position);const productWorld=new THREE.Vector3();draggedProduct.getWorldPosition(productWorld);if(productWorld.distanceTo(target)<2.2){if(coins>=draggedProduct.userData.price){coins-=draggedProduct.userData.price;const id=draggedProduct.userData.id;if(id==='snack')score+=100;if(id==='repair')shieldCount=Math.min(3,shieldCount+1);if(id==='shield')shieldCount=Math.min(3,shieldCount+1);if(id==='nitro')speed=Math.min(MAX_SPEED,speed+8);updateProgressHUD();flashCoins();gs.userData.marketItems=gs.userData.marketItems.filter(x=>x!==draggedProduct);draggedProduct.parent.remove(draggedProduct);shopMessage=`Куплено: ${draggedProduct.userData.name}`;shopMessageTimer=1.5;sold=true;}else{shopMessage='Недостаточно монет';shopMessageTimer=1.5;}}}
 if(!sold && draggedProduct){const gs=gasStations.find(g=>g.userData.marketItems?.includes(draggedProduct));if(gs)draggedProduct.position.copy(draggedProduct.userData.home);}draggedProduct=null;});
 addEventListener('keydown',e=>{if(e.code==='Escape'&&marketMode){setMarketMode(false);}});
