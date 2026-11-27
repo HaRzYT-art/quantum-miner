@@ -1230,9 +1230,9 @@ function setMarketMode(on){marketMode=on; if(on){if(document.pointerLockElement)
 function marketProductAt(){marketRaycaster.setFromCamera(marketMouse,camera);const all=[];for(const gs of gasStations)for(const item of (gs.userData.marketItems||[]))all.push(...item.children);const hits=marketRaycaster.intersectObjects(all,true);return hits.length?hits[0].object:null;}
 function marketPickRoot(obj){while(obj && !obj.userData.marketProduct)obj=obj.parent;return obj;}
 function updateMarketPointer(e){marketMouse.x=e.clientX/innerWidth*2-1;marketMouse.y=-(e.clientY/innerHeight)*2+1;}
-addEventListener('pointermove',e=>{if(!marketMode)return;updateMarketPointer(e);if(draggedProduct){marketRaycaster.setFromCamera(marketMouse,camera);if(marketRaycaster.ray.intersectPlane(marketDragPlane,marketHit)){const localHit=draggedProduct.parent.worldToLocal(marketHit.clone());draggedProduct.position.x=localHit.x;draggedProduct.position.z=localHit.z;}}});
+addEventListener('pointermove',e=>{if(!marketMode)return;updateMarketPointer(e);if(draggedProduct){marketRaycaster.setFromCamera(marketMouse,camera);const wp=draggedProduct.getWorldPosition(new THREE.Vector3());const plane=new THREE.Plane(new THREE.Vector3(0,1,0),-wp.y);if(marketRaycaster.ray.intersectPlane(plane,marketHit)){const localHit=draggedProduct.parent.worldToLocal(marketHit.clone());draggedProduct.position.x=THREE.MathUtils.clamp(localHit.x,-10.5,10.5);draggedProduct.position.z=THREE.MathUtils.clamp(localHit.z,-29,-15.5);}}});
 addEventListener('pointerdown',e=>{if(!marketMode||e.button!==0)return;updateMarketPointer(e);const hit=marketProductAt();if(hit){draggedProduct=marketPickRoot(hit);e.preventDefault();try{e.target.setPointerCapture?.(e.pointerId);}catch(_){}}});
-addEventListener('pointerup',e=>{if(!marketMode||!draggedProduct)return;let sold=false;for(const gs of gasStations){const target=gs.userData.cashierLocal.clone().applyAxisAngle(new THREE.Vector3(0,1,0),gs.rotation.y).add(gs.position);const productWorld=new THREE.Vector3();draggedProduct.getWorldPosition(productWorld);if(productWorld.distanceTo(target)<2.2){if(coins>=draggedProduct.userData.price){coins-=draggedProduct.userData.price;const id=draggedProduct.userData.id;if(id==='snack')score+=100;if(id==='repair')shieldCount=Math.min(3,shieldCount+1);if(id==='shield')shieldCount=Math.min(3,shieldCount+1);if(id==='nitro')speed=Math.min(MAX_SPEED,speed+8);updateProgressHUD();flashCoins();gs.userData.marketItems=gs.userData.marketItems.filter(x=>x!==draggedProduct);draggedProduct.parent.remove(draggedProduct);shopMessage=`Куплено: ${draggedProduct.userData.name}`;shopMessageTimer=1.5;sold=true;}else{shopMessage='Недостаточно монет';shopMessageTimer=1.5;}}}
+addEventListener('pointerup',e=>{if(!marketMode||!draggedProduct)return;let sold=false;for(const gs of gasStations){const target=gs.userData.cashierLocal.clone().applyAxisAngle(new THREE.Vector3(0,1,0),gs.rotation.y).add(gs.position);const productWorld=new THREE.Vector3();draggedProduct.getWorldPosition(productWorld);const localProduct=stationLocal(gs,productWorld);if(Math.hypot(localProduct.x-gs.userData.cashierLocal.x,localProduct.z-gs.userData.cashierLocal.z)<2.5){if(coins>=draggedProduct.userData.price){coins-=draggedProduct.userData.price;const id=draggedProduct.userData.id;if(id==='snack')score+=100;if(id==='repair')shieldCount=Math.min(3,shieldCount+1);if(id==='shield')shieldCount=Math.min(3,shieldCount+1);if(id==='nitro')speed=Math.min(MAX_SPEED,speed+8);updateProgressHUD();flashCoins();gs.userData.marketItems=gs.userData.marketItems.filter(x=>x!==draggedProduct);draggedProduct.parent.remove(draggedProduct);shopMessage=`Куплено: ${draggedProduct.userData.name}`;shopMessageTimer=1.5;sold=true;}else{shopMessage='Недостаточно монет';shopMessageTimer=1.5;}}}
 if(!sold && draggedProduct){const gs=gasStations.find(g=>g.userData.marketItems?.includes(draggedProduct));if(gs)draggedProduct.position.copy(draggedProduct.userData.home);}draggedProduct=null;});
 addEventListener('keydown',e=>{if(e.code==='Escape'&&marketMode){setMarketMode(false);}});
 
@@ -1334,7 +1334,7 @@ function tryBuy() {
 
 // ============ СОСТОЯНИЕ ============
 let speed = 0, score = 0, coins = 0, gameOver = false;
-let fuel = 100;
+let fuel = 100, carDamage = 0, dentMarks = [], fireFx = null;
 
 let MAX_SPEED = 38, ACCEL = 9, STEER = 0.42, shieldCount = 0;
 let steerInput = 0, yawRate = 0, lateralVelocity = 0;
@@ -1371,7 +1371,7 @@ function applyShopUpgrade(type) {
 }
 
 function reset() {
-  speed = 0; score = 0; coins = 0; fuel = 100; gameOver = false;
+  speed = 0; score = 0; coins = 0; fuel = 100; carDamage=0; dentMarks.forEach(d=>car.remove(d)); dentMarks=[]; if(fireFx){car.remove(fireFx);fireFx=null;} gameOver = false;
   MAX_SPEED = 38; ACCEL = 9; STEER = 0.42; shieldCount = 0;
   steerInput = 0; yawRate = 0; lateralVelocity = 0; obstacleTimer = 2.8; lastObstacleLane = null; cameraSmoothReady = false; coinTimer = 2.8;
   collected.speed = collected.accel = collected.handle = collected.shield = 0;
@@ -1403,6 +1403,7 @@ function aabbCarCollide(ox, oz, ohw, ohd) {
   return Math.abs(dx * cos - dz * sin) < CAR_HALF_W + ohw && Math.abs(dx * sin + dz * cos) < CAR_HALF_D + ohd;
 }
 
+function damageCar(){ carDamage++; const dentMat=new THREE.MeshStandardMaterial({color:0x292b30,roughness:.9,metalness:.1}); const dent=new THREE.Mesh(new THREE.SphereGeometry(.22+Math.random()*.18,8,6),dentMat); dent.scale.set(1.5,.25,.7); dent.position.set((Math.random()-.5)*1.6,.72,(Math.random()-.5)*3.4); car.add(dent); dentMarks.push(dent); shakeTime=.35; if(carDamage>=3){ const flame=new THREE.Mesh(new THREE.ConeGeometry(1.15,2.8,10),new THREE.MeshBasicMaterial({color:0xff5a12})); flame.position.set(0,1.9,0); car.add(flame); fireFx=flame; gameOver=true; speed=0; overEl.style.display='flex'; overEl.querySelector('h1')?.textContent='МАШИНА ЗАГОРЕЛАСЬ'; } }
 function playerHitsWalls(px, pz) {
   const pr = 0.35;
   for (const gs of gasStations) {
@@ -1489,7 +1490,7 @@ function animate() {
       const drag = 0.35 + Math.abs(speed) * 0.025 + speed * speed * 0.0007 + (onRoad ? 0 : 7);
       speed = moveToward(speed, 0, drag * dt);
     }
-    if (Math.abs(speed) > 0.5) { fuel = Math.max(0, fuel - Math.abs(speed) * dt * 0.012); if(fuel===0) speed=Math.min(speed,0); updateProgressHUD(); }
+    if (Math.abs(speed) > 0.5) { const throttleLoad=gas?1.8:0.35; fuel=Math.max(0,fuel-(0.000035*Math.abs(speed)*Math.abs(speed)+0.00022*throttleLoad)*dt); if(fuel===0)speed=Math.min(speed,0); updateProgressHUD(); }
     const longitudinalAccel = (speed - previousSpeed) / Math.max(dt, 0.001);
 
     // Рулевое управление: направление A/D совпадает с поворотом передних колёс и кузова.
@@ -1590,6 +1591,7 @@ function animate() {
         }
       }
     }
+    if(!gameOver){ let treeHit=false; const checkTrees=(xs,zs)=>{for(let i=0;i<zs.length;i++){const wz=zs[i]+Math.floor((activeZ-zs[i]+HALF)/BAND)*BAND; if(Math.abs(car.position.z-wz)<CAR_HALF_D+1.0 && Math.abs(car.position.x-xs[i])<CAR_HALF_W+1.0){treeHit=true;break;}}}; const pineX=Array.from(pineBaseZ,(_,i)=>pineTrunkMesh.instanceMatrix.array[i*16+12]); const decidX=Array.from(decidBaseZ,(_,i)=>decidTrunkMesh.instanceMatrix.array[i*16+12]); checkTrees(pineX,pineBaseZ); if(!treeHit)checkTrees(decidX,decidBaseZ); if(treeHit){damageCar(); if(!gameOver)speed*=0.35;} }
     for (let i = coinsList.length - 1; i >= 0; i--) {
       const c = coinsList[i]; if (c.userData.collected) continue;
       const dx = car.position.x - c.position.x, dz = car.position.z - c.position.z;
