@@ -57,6 +57,7 @@
   <div id="coinRow"><div id="coinIcon"></div><div id="coins">0</div></div>
   <div id="score">SCORE 0</div>
   <div id="speed">0 км/ч</div>
+  <div id="fuel" style="color:#7dffc4;margin-top:4px">⛽ Топливо 100%</div>
   <div id="fps">— FPS</div>
   <div id="cameraMode">КАМЕРА · 1-Е ЛИЦО (C)</div>
   <div id="stats">
@@ -70,7 +71,7 @@
     <span data-k="KeyS">S</span><span data-k="KeyD">D</span>
   </div>
 </div>
-<div id="hint">W/S газ и тормоз · A/D руль · C — смена камеры · E — выйти/сесть · R — рестарт<br>Заезжай на заправку, заходи внутрь и покупай прокачку</div>
+<div id="hint">W/S газ и тормоз · A/D руль · C — смена камеры · E — выйти/сесть · R — рестарт<br>Остановись у колонки и нажми F для заправки · Заходи внутрь за прокачкой</div>
 <div id="walkHint">Ходьба: WASD · Shift бег · Space прыжок<br>E — сесть в машину · F — купить</div>
 <div id="prompt"></div>
 <div id="crosshair"></div>
@@ -1284,7 +1285,15 @@ function isUpgradeMaxed(type) {
 }
 
 function tryBuy() {
-  if (!walkMode) return;
+  if (!walkMode) {
+    if(Math.abs(speed)>=1)return;
+    const gs=gasStations.find(g=>Math.hypot(car.position.x-g.position.x,car.position.z-g.position.z)<13);
+    if(!gs)return;
+    const cost=Math.ceil((100-fuel)*0.2);
+    if(fuel>=99){shopMessage='Бак уже полный';shopMessageTimer=1.5;return;}
+    if(coins<cost){shopMessage='Нужно '+cost+' монет для заправки';shopMessageTimer=1.8;return;}
+    coins-=cost;fuel=100;updateProgressHUD();flashCoins();shopMessage='Полный бак! -'+cost+' монет';shopMessageTimer=1.8;return;
+  }
   if(!marketMode){const gs=gasStations.find(g=>nearMarket(g));if(gs){setMarketMode(true);return;}}
   if(marketMode)return;
   for (const gs of gasStations) {
@@ -1325,6 +1334,7 @@ function tryBuy() {
 
 // ============ СОСТОЯНИЕ ============
 let speed = 0, score = 0, coins = 0, gameOver = false;
+let fuel = 100;
 
 let MAX_SPEED = 38, ACCEL = 9, STEER = 0.42, shieldCount = 0;
 let steerInput = 0, yawRate = 0, lateralVelocity = 0;
@@ -1345,7 +1355,7 @@ function updateStatHUD() {
     el.textContent = labels[key] + (collected[key] > 1 ? collected[key] : '');
   });
 }
-function updateProgressHUD() { scoreEl.textContent = 'SCORE ' + score; coinsEl.textContent = coins; }
+function updateProgressHUD() { scoreEl.textContent = 'SCORE ' + score; coinsEl.textContent = coins; const fuelEl=document.getElementById('fuel'); if(fuelEl){fuelEl.textContent='⛽ Топливо '+Math.ceil(fuel)+'%';fuelEl.style.color=fuel<=20?'#ff6677':'#7dffc4';} }
 function addScore(n) { score += n; updateProgressHUD(); }
 function collectCoin(value = 1) { coins += value; addScore(value); flashCoins(); updateProgressHUD(); }
 function flashCoins() { coinFlashEl.style.opacity = '1'; setTimeout(() => coinFlashEl.style.opacity = '0', 120); }
@@ -1361,7 +1371,7 @@ function applyShopUpgrade(type) {
 }
 
 function reset() {
-  speed = 0; score = 0; coins = 0; gameOver = false;
+  speed = 0; score = 0; coins = 0; fuel = 100; gameOver = false;
   MAX_SPEED = 38; ACCEL = 9; STEER = 0.42; shieldCount = 0;
   steerInput = 0; yawRate = 0; lateralVelocity = 0; obstacleTimer = 2.8; lastObstacleLane = null; cameraSmoothReady = false; coinTimer = 2.8;
   collected.speed = collected.accel = collected.handle = collected.shield = 0;
@@ -1469,7 +1479,7 @@ function animate() {
     const previousSpeed = speed;
 
     // Мягкая продольная динамика: двигатель, тормоза и сопротивление воздуха.
-    if (gas) {
+    if (gas && fuel > 0) {
       speed = Math.min(speed + ACCEL * roadFactor * dt, MAX_SPEED * roadFactor);
     } else if (brake) {
       speed = speed > 0.4
@@ -1479,6 +1489,7 @@ function animate() {
       const drag = 0.35 + Math.abs(speed) * 0.025 + speed * speed * 0.0007 + (onRoad ? 0 : 7);
       speed = moveToward(speed, 0, drag * dt);
     }
+    if (Math.abs(speed) > 0.5) { fuel = Math.max(0, fuel - Math.abs(speed) * dt * 0.012); if(fuel===0) speed=Math.min(speed,0); updateProgressHUD(); }
     const longitudinalAccel = (speed - previousSpeed) / Math.max(dt, 0.001);
 
     // Рулевое управление: направление A/D совпадает с поворотом передних колёс и кузова.
@@ -1620,7 +1631,9 @@ function animate() {
 
   // ===== ПРОМПТ =====
   if (!walkMode) {
-    if (Math.abs(speed) < 3) { promptEl.style.display = 'block'; promptEl.textContent = 'E — выйти из машины'; }
+    const pump=gasStations.find(gs=>Math.hypot(car.position.x-gs.position.x,car.position.z-gs.position.z)<13);
+    if(pump && Math.abs(speed)<1){promptEl.style.display='block';promptEl.textContent=fuel<99?'F — заправить до полного ('+Math.ceil((100-fuel)*0.2)+' монет)':'Бак полный';}
+    else if (Math.abs(speed) < 3) { promptEl.style.display = 'block'; promptEl.textContent = 'E — выйти из машины'; }
     else promptEl.style.display = 'none';
   } else {
     const dx = walker.pos.x - car.position.x, dz = walker.pos.z - car.position.z;
@@ -1744,6 +1757,7 @@ function animate() {
   composer.render();
 }
 
+updateProgressHUD();
 updateCameraModeHUD();
 carObj.cabin.visible = cameraMode === 'third';
 cockpit.visible = cameraMode === 'first';
