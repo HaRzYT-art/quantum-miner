@@ -933,13 +933,14 @@ function despawnObstacle(o) { scene.remove(o); o.visible = false; const p = pool
 // ============ МОНЕТЫ ============
 const coinsList = [], coinPool = [];
 const coinGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.1, 18);
+const bonusCoinMat = new THREE.MeshStandardMaterial({ color: 0x7efcff, metalness: 0.85, roughness: 0.12, emissive: 0x007f99, emissiveIntensity: 1.8 });
 const coinMat = new THREE.MeshStandardMaterial({ color: 0xffcc22, metalness: 0.9, roughness: 0.15, emissive: 0xaa7700, emissiveIntensity: 0.8 });
-function makeCoin() {
+function makeCoin(bonus = false) {
   const g = new THREE.Group();
-  const m = new THREE.Mesh(coinGeo, coinMat); m.rotation.z = Math.PI/2; m.castShadow = true; g.add(m);
-  g.position.y = 1.0; g.userData.halfW = 0.5; g.userData.halfD = 0.5; return g;
+  const m = new THREE.Mesh(coinGeo, bonus ? bonusCoinMat : coinMat); m.rotation.z = Math.PI/2; m.castShadow = true; g.add(m);
+  g.position.y = 1.0; g.userData.halfW = 0.5; g.userData.halfD = 0.5; g.userData.bonus = bonus; return g;
 }
-function spawnCoin(x, z) { let c = coinPool.pop(); if (!c) c = makeCoin(); c.visible = true; c.position.set(x, 0, z); c.userData.collected = false; scene.add(c); coinsList.push(c); }
+function spawnCoin(x, z, bonus = false) { let c = coinPool.pop(); if (!c || c.userData.bonus !== bonus) { if (c) coinPool.push(c); c = makeCoin(bonus); } c.visible = true; c.position.set(x, 0, z); c.userData.collected = false; scene.add(c); coinsList.push(c); }
 function despawnCoin(c) { scene.remove(c); c.visible = false; if (coinPool.length < 40) coinPool.push(c); }
 
 // ============ ЗАПРАВКА С ИНТЕРЬЕРОМ ============
@@ -1346,7 +1347,7 @@ function updateStatHUD() {
 }
 function updateProgressHUD() { scoreEl.textContent = 'SCORE ' + score; coinsEl.textContent = coins; }
 function addScore(n) { score += n; updateProgressHUD(); }
-function collectCoin() { coins++; addScore(1); flashCoins(); updateProgressHUD(); }
+function collectCoin(value = 1) { coins += value; addScore(value); flashCoins(); updateProgressHUD(); }
 function flashCoins() { coinFlashEl.style.opacity = '1'; setTimeout(() => coinFlashEl.style.opacity = '0', 120); }
 function applyShopUpgrade(type) {
   collected[type]++;
@@ -1581,7 +1582,7 @@ function animate() {
     for (let i = coinsList.length - 1; i >= 0; i--) {
       const c = coinsList[i]; if (c.userData.collected) continue;
       const dx = car.position.x - c.position.x, dz = car.position.z - c.position.z;
-      if (dx*dx + dz*dz < 5.0) { c.userData.collected = true; collectCoin(); despawnCoin(c); coinsList.splice(i, 1); }
+      if (dx*dx + dz*dz < 5.0) { c.userData.collected = true; collectCoin(c.userData.bonus ? 5 : 1); despawnCoin(c); coinsList.splice(i, 1); }
     }
   } else {
     // ===== ПЕШЕХОД =====
@@ -1713,6 +1714,8 @@ function animate() {
     const coinLead = THREE.MathUtils.clamp(Math.abs(speed) * 3.0 + 18, 85, 135);
     const travelDirection = speed < 0 ? 1 : -1;
     for (let i = 0; i < count; i++) spawnCoin(rowX, activeZ + (coinLead + i * 4) * travelDirection);
+    // Редкий энергетический жетон: бирюзовый цвет, награда в 5 монет.
+    if (Math.random() < 0.14) spawnCoin([-7, -4, 0, 4, 7][Math.floor(Math.random()*5)], activeZ + (coinLead + count * 5) * travelDirection, true);
     coinTimer = 2.8 + Math.random() * 1.3;
   }
 
